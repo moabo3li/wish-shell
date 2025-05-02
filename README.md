@@ -80,8 +80,6 @@ The shell maintains a list of directories to search for executable files:
 
 ## Limitations
 
-- No support for pipes
-- No wildcards or path expansion
 - Limited error information
 - No command history
 - No background processing
