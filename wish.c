@@ -11,6 +11,17 @@
 #define DELIM " \t\n\r"
 #define ERROR_MSG "An error has occurred\n"
 
+char *PATH[TOKENS_NUMBER] = {NULL}; // Initialize all elements to NULL
+
+/**
+ * Initializes default path directories
+ */
+void initialize_path() {
+  PATH[0] = strdup("/bin");
+  PATH[1] = strdup("/usr/bin");
+  PATH[2] = NULL;
+}
+
 /**
  * Executes the built-in 'cd' (change directory) command
  * @param args Array of command arguments where args[0] is "cd" and args[1] is
@@ -62,6 +73,40 @@ int execute_exit(char **args) {
 }
 
 /**
+ * Executes the built-in 'path' command to set search directories
+ * @param args Array of command arguments where args[0] is "path" followed by directory paths
+ * @return EXIT_SUCCESS if the command was handled, EXIT_FAILURE otherwise
+ */
+int execute_path(char **args) {
+  if (!strcmp(args[0], "path")) {
+    // First, clear the existing path by setting all entries to NULL
+    int path_count = 0;
+    while (PATH[path_count] != NULL) {
+      free(PATH[path_count]); // Free the previously allocated memory
+      PATH[path_count] = NULL;
+      path_count++;
+    }
+    
+    // If there are arguments, add each one to the PATH array
+    if (args[1] != NULL) {
+      path_count = 0;
+      int args_count = 1;
+      while (args[args_count] != NULL && path_count < TOKENS_NUMBER - 1) {
+        // Create a copy of the path string to avoid issues when args memory is freed
+        PATH[path_count] = strdup(args[args_count]);
+        path_count++;
+        args_count++;
+      }
+    }
+    
+    // Ensure the PATH array is NULL-terminated
+    PATH[path_count] = NULL;
+    return EXIT_SUCCESS;
+  }
+  return EXIT_FAILURE;
+}
+
+/**
  * Checks and executes built-in shell commands
  * @param args Array of command arguments
  * @return EXIT_SUCCESS if a built-in command was executed, EXIT_FAILURE
@@ -76,31 +121,63 @@ int execute_builtin_command(char **args) {
   if (!execute_cd(args))
     return EXIT_SUCCESS;
 
+  // Try to execute as path command
+  if (!execute_path(args)) 
+    return EXIT_SUCCESS;
+  
+
   // Not a built-in command
   return EXIT_FAILURE;
 }
 
 /**
- * Executes a command using fork and execvp
+ * Constructs a full executable path by combining directory path with command name
+ * @param path Directory path to search in
+ * @param command Command to execute
+ * @return Newly allocated string containing the full path (caller must free)
+ */
+char* create_executable_path(char *path, char *command) {
+  // Allocate memory for the full path (path + / + command + null terminator)
+  char *full_path = malloc(strlen(path) + strlen(command) + 2);
+  if (full_path == NULL) {
+    fprintf(stderr, ERROR_MSG);
+    exit(EXIT_FAILURE);
+  }
+  // Construct the full path
+  strcpy(full_path, path);
+  strcat(full_path, "/");
+  strcat(full_path, command);
+  return full_path;
+}
+
+/**
+ * Executes a command using fork and execv
  * @param args Array of arguments for the command
- * @return EXIT_SUCCESS on success, EXIT_FAILURE on failure or exit
+ * @return EXIT_SUCCESS on success, EXIT_FAILURE on failure
  */
 int execute_command(char **args) {
   // Create a child process to execute the command
-  // This allows the shell to continue running after command execution
   pid_t child_pid = fork();
 
   // Handle possible fork outcomes
   if (child_pid == -1) {
     // Fork failed - system couldn't create a new process
-    fprintf(stderr, "Fork failed\n");
+    fprintf(stderr, ERROR_MSG);
     return EXIT_FAILURE;
   } else if (child_pid == 0) {
     // Child process code path
-    // Replace current process image with the command to be executed
-    execvp(args[0], args);
-    // If execvp returns, it means an error occurred (command not found or not
-    // executable)
+    // Try each path in PATH array until command is found and executed
+    int path_count = 0;
+    char *executable_path;
+    while (PATH[path_count] != NULL) {
+      // Construct the full path for the executable
+      executable_path = create_executable_path(PATH[path_count], args[0]);
+      execv(executable_path, args);
+      // If execv returns, the command wasn't found in this path directory
+      free(executable_path);
+      path_count++;
+    }
+    // If we reach here, command wasn't found in any path directory
     fprintf(stderr, ERROR_MSG);
     exit(EXIT_FAILURE); // Exit child process on failure
   } else {
@@ -112,7 +189,7 @@ int execute_command(char **args) {
 }
 
 /**
- * Parses a command line into an array of tokens
+ * Parses a command line into an array of tokens (words)
  * @param line The input command line to parse
  * @return Array of string tokens (needs to be freed by caller)
  */
@@ -123,21 +200,22 @@ char **parse_line(char *line) {
 
   // Check if memory allocation succeeded
   if (!tokens) {
-    fprintf(stderr, "Memory allocation error\n");
+    fprintf(stderr, ERROR_MSG);
     return NULL;
   }
 
-  // Split the line into tokens using delimiters defined in DELIM
+  // Split the line into tokens using delimiters defined in DELIM (spaces, tabs, etc.)
   char *token = strtok(line, DELIM);
 
   // Process all tokens in the input line
-  while (token != NULL) {
+  while (token != NULL && token_count < TOKENS_NUMBER - 1) {
     tokens[token_count] = token;
     token_count++;
     // Get next token (NULL tells strtok to continue from last position)
     token = strtok(NULL, DELIM);
   }
-  // Null-terminate the array of tokens
+  
+  // Null-terminate the array of tokens for easier processing
   tokens[token_count] = NULL;
   return tokens;
 }
@@ -150,43 +228,43 @@ char **parse_line(char *line) {
 void wish_shell(FILE *output, FILE *input) {
   char *line = NULL;
   size_t buffer_size = 0;
-  bool running = true; // Indicates whether the shell should continue running
+  bool running = true; // Shell continues running until EOF or exit command
 
   while (running) {
     line = NULL;
     buffer_size = 0;
 
-    // Print shell prompt at interactive mode only
+    // Print shell prompt in interactive mode only (when input is from terminal)
     if (input == stdin) {
-      // Display prompt only when reading from terminal
       fprintf(output, "wish> ");
+      fflush(output); // Ensure prompt is displayed immediately
     }
 
-    // Get input line from user
+    // Get input line from user using getline for dynamic allocation
     if (getline(&line, &buffer_size, input) == -1) {
-      // Handle EOF or error condition
+      // Handle EOF (Ctrl+D) or read error by exiting the loop
       free(line);
       break;
     }
 
-    // Parse input line into command arguments
+    // Parse input line into array of command arguments
     char **args = parse_line(line);
 
-    // Handle empty commands or parsing errors
+    // Skip empty commands or commands that failed to parse
     if (args == NULL || args[0] == NULL) {
       free(args);
       free(line);
       continue;
     }
 
-    // Try to execute as a built-in command
+    // First try to handle as a built-in command (cd, exit, path)
     bool is_builtin_command = !execute_builtin_command(args);
 
-    // If not a built-in command, try to execute as an external command
+    // If not a built-in command, execute as external command
     if (!is_builtin_command)
       execute_command(args);
 
-    // Free allocated memory
+    // Free allocated memory to prevent leaks
     free(args);
     free(line);
   }
@@ -202,6 +280,9 @@ int main(int argc, char *argv[]) {
   // Initialize input/output streams
   FILE *output = stdout;
   FILE *input = stdin;
+
+  // Initialize default path directories
+  initialize_path();
 
   // Process command-line arguments for batch mode
   if (argc == 2) {

@@ -8,10 +8,11 @@ Wish (Wisconsin Shell) is a lightweight command-line interface that provides bas
 
 ## Features
 
-- Command execution
+- Command execution with path searching
 - Built-in commands: 
-  - `cd` - Change directory
+  - `cd [directory]` - Change directory
   - `exit` - Exit the shell
+  - `path [directory1] [directory2] ...` - Set search path for executables
 - Support for both interactive and batch modes
 - Error handling with standardized error messages
 - File I/O redirection (for batch mode)
@@ -58,7 +59,7 @@ You can also specify an output file:
 When launched without arguments, the shell runs in interactive mode:
 - The prompt `wish>` appears, waiting for your commands
 - Enter commands like you would in any shell
-- Use built-in commands (`cd`, `exit`) or any system commands
+- Use built-in commands (`cd`, `exit`, `path`) or any system commands
 
 ### Batch Mode
 
@@ -66,6 +67,16 @@ Pass a file path as an argument to run commands from that file:
 - One command per line
 - No prompt is displayed
 - All output goes to stdout (or specified output file)
+
+### Command Path Resolution
+
+The shell maintains a list of directories to search for executable files:
+- Default search path includes `/bin` and `/usr/bin`
+- You can modify the search path using the `path` command
+- `path` with no arguments clears the search path
+- Examples:
+  - `path /usr/local/bin /bin /usr/bin` - Sets search path to these three directories
+  - `path` - Clears all search paths (you won't be able to execute any commands afterwards)
 
 ## Limitations
 
