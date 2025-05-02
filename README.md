@@ -4,15 +4,17 @@ A simple shell implementation written in C.
 
 ## Overview
 
-Wish (Wisconsin Shell) is a lightweight command-line interface that provides basic shell functionality. This project is currently in its initial development phase.
+Wish (Wisconsin Shell) is a lightweight command-line interface that provides basic shell functionality. This implementation offers essential shell capabilities with a clean, minimalist interface.
 
-## Features (Planned)
+## Features
 
 - Command execution
-- Input/output redirection
-- Path management
-- Batch mode execution
-- Interactive mode
+- Built-in commands: 
+  - `cd` - Change directory
+  - `exit` - Exit the shell
+- Support for both interactive and batch modes
+- Error handling with standardized error messages
+- File I/O redirection (for batch mode)
 
 ## Getting Started
 
@@ -43,9 +45,35 @@ Run in batch mode (provide a batch file):
 ./wish batch_file
 ```
 
-## Current Status
+You can also specify an output file:
 
-The project is in its initial stages of development. Basic command-line argument handling has been implemented.
+```bash
+./wish batch_file output_file
+```
+
+## Usage
+
+### Interactive Mode
+
+When launched without arguments, the shell runs in interactive mode:
+- The prompt `wish>` appears, waiting for your commands
+- Enter commands like you would in any shell
+- Use built-in commands (`cd`, `exit`) or any system commands
+
+### Batch Mode
+
+Pass a file path as an argument to run commands from that file:
+- One command per line
+- No prompt is displayed
+- All output goes to stdout (or specified output file)
+
+## Limitations
+
+- No support for pipes
+- No wildcards or path expansion
+- Limited error information
+- No command history
+- No background processing
 
 ## Contributing
 
