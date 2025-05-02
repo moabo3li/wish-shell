@@ -8,12 +8,60 @@
 #include <unistd.h>
 
 #define TOKENS_NUMBER 64
-#define DELIM " \t\n"
+#define DELIM " \t\n\r"
+#define ERROR_MSG "An error has occurred\n"
+
+int execute_cd(char **args) {
+  if (!strcmp(args[0], "cd")) {
+    int position = 0;
+    while (args[position] != NULL) {
+      position++;
+    }
+    // Check the argument is valid
+    if (position == 2) {
+      // Change dir
+      if (chdir(args[1]) != 0) {
+        fprintf(stderr, ERROR_MSG);
+      }
+    } else {
+      fprintf(stderr, ERROR_MSG);
+    }
+    return EXIT_SUCCESS;
+  }
+  return EXIT_FAILURE;
+}
+
+int execute_exit(char **args) {
+  // Check if argument is exit
+  if (!strcmp(args[0], "exit")) {
+    if (args[1] != NULL) {
+      fprintf(stderr, ERROR_MSG);
+      return EXIT_SUCCESS;
+    } else {
+      exit(EXIT_SUCCESS);
+    }
+    // Continue processing if we didn't exit
+    return EXIT_SUCCESS;
+  }
+  return EXIT_FAILURE;
+}
+
+int execute_builtin_command(char **args) {
+  // Check if argument is exit
+  if (!execute_exit(args))
+    return EXIT_SUCCESS;
+
+  // Check if argument is cd
+  if (!execute_cd(args))
+    return EXIT_SUCCESS;
+
+  return EXIT_FAILURE;
+}
 
 /**
  * Executes a command using fork and execvp
  * @param args Array of arguments for the command
- * @return EXIT_SUCCESS on success, EXIT_FAILURE on failure
+ * @return EXIT_SUCCESS on success, EXIT_FAILURE on failure or exit
  */
 int execute_command(char **args) {
   // Fork to execute the command
@@ -24,14 +72,16 @@ int execute_command(char **args) {
     fprintf(stderr, "Fork failed\n");
     return EXIT_FAILURE;
   } else if (fork_pid == 0) {
+    // Execute command
     execvp(args[0], args);
-    fprintf(stderr, "Execute failed\n");
+    // If execvp fails, print error message
+    fprintf(stderr, ERROR_MSG);
     return EXIT_FAILURE;
   } else {
+    // Wait until the command finish
     wait(NULL);
     return EXIT_SUCCESS;
   }
-  return EXIT_FAILURE;
 }
 
 /**
@@ -71,14 +121,18 @@ char **parse_line(char *line) {
 void wish_shell(FILE *output, FILE *input) {
   char *line = NULL;
   size_t buffer_size = 0;
-  
-  while (true) {
+  bool bsignal = true;
+
+  while (bsignal) {
     line = NULL;
     buffer_size = 0;
-    
-    // Print shell prompt
-    fprintf(output, "wish> ");
-    
+
+    // Print shell prompt at interactive mode only
+    if (input == stdin) {
+      // Check if the signal is set
+      fprintf(output, "wish> ");
+    }
+
     // Get input line from user
     if (getline(&line, &buffer_size, input) == -1) {
       // Handle EOF or error condition
@@ -88,23 +142,19 @@ void wish_shell(FILE *output, FILE *input) {
 
     // Parse input to tokens
     char **args = parse_line(line);
-    
+
     // Handle empty commands
     if (args == NULL || args[0] == NULL) {
       free(args);
       free(line);
       continue;
     }
+    // Execute if builtin commands
+    bool builtincommand = !execute_builtin_command(args);
 
-    // Check if argument is exit
-    if (!strcmp(args[0], "exit")) {
-      free(args);
-      free(line);
-      return;
-    }
-
-    // Execute command
-    execute_command(args);
+    // if not found execute system commands
+    if (!builtincommand)
+      execute_command(args);
 
     // Free the allocated memory
     free(args);
@@ -116,10 +166,26 @@ void wish_shell(FILE *output, FILE *input) {
  * Entry point of the shell
  */
 int main(int argc, char *argv[]) {
+
   FILE *output = stdout;
   FILE *input = stdin;
+  if (argc == 2)
+    input = fopen(argv[1], "r");
+  else if (argc == 3) {
+    input = fopen(argv[1], "r");
+    output = fopen(argv[2], "w+");
+  }
 
   wish_shell(output, input);
+
+  // Close the input file if it was opened
+  if (input != stdin) {
+    fclose(input);
+  }
+  // Close the output file if it was opened
+  if (output != stdout) {
+    fclose(output);
+  }
 
   return EXIT_SUCCESS;
 }
