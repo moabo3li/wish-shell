@@ -1,5 +1,8 @@
 # Binary executable files
 wish
 
+# Formatting files
+.clang-format
+
 # Object files
 *.o

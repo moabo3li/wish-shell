@@ -9,18 +9,22 @@
 
 #define TOKENS_NUMBER 64
 #define DELIM " \t\n\r"
+#define RED_DELIM ">"
 #define ERROR_MSG "An error has occurred\n"
 
 char *PATH[TOKENS_NUMBER] = {NULL}; // Initialize all elements to NULL
 
+FILE *OUTPUT;
+FILE *INPUT;
+FILE *ERROUTPUT;
 /**
  * Initializes default path directories
  */
 void initialize_path()
 {
-  PATH[0] = strdup("/bin");
-  PATH[1] = strdup("/usr/bin");
-  PATH[2] = NULL;
+    PATH[0] = strdup("/bin");
+    PATH[1] = strdup("/usr/bin");
+    PATH[2] = NULL;
 }
 
 /**
@@ -31,31 +35,31 @@ void initialize_path()
  */
 int execute_cd(char **args)
 {
-  if (!strcmp(args[0], "cd"))
-  {
-    int arg_count = 0;
-    // Count the number of arguments
-    while (args[arg_count] != NULL)
+    if (!strcmp(args[0], "cd"))
     {
-      arg_count++;
+        int arg_count = 0;
+        // Count the number of arguments
+        while (args[arg_count] != NULL)
+        {
+            arg_count++;
+        }
+        // Check if exactly one argument was provided (cd + directory)
+        if (arg_count == 2)
+        {
+            // Attempt to change directory and report error if it fails
+            if (chdir(args[1]) != 0)
+            {
+                fprintf(ERROUTPUT, ERROR_MSG);
+            }
+        }
+        else
+        {
+            // Wrong number of arguments for cd command
+            fprintf(ERROUTPUT, ERROR_MSG);
+        }
+        return EXIT_SUCCESS;
     }
-    // Check if exactly one argument was provided (cd + directory)
-    if (arg_count == 2)
-    {
-      // Attempt to change directory and report error if it fails
-      if (chdir(args[1]) != 0)
-      {
-        fprintf(stderr, ERROR_MSG);
-      }
-    }
-    else
-    {
-      // Wrong number of arguments for cd command
-      fprintf(stderr, ERROR_MSG);
-    }
-    return EXIT_SUCCESS;
-  }
-  return EXIT_FAILURE;
+    return EXIT_FAILURE;
 }
 
 /**
@@ -65,24 +69,24 @@ int execute_cd(char **args)
  */
 int execute_exit(char **args)
 {
-  // Check if command is "exit"
-  if (!strcmp(args[0], "exit"))
-  {
-    if (args[1] != NULL)
+    // Check if command is "exit"
+    if (!strcmp(args[0], "exit"))
     {
-      // Error: exit command should not have any arguments
-      fprintf(stderr, ERROR_MSG);
-      return EXIT_SUCCESS;
+        if (args[1] != NULL)
+        {
+            // Error: exit command should not have any arguments
+            fprintf(stderr, ERROR_MSG);
+            return EXIT_SUCCESS;
+        }
+        else
+        {
+            // Exit the shell with success status
+            exit(EXIT_SUCCESS);
+        }
+        // This line is reached only if exit failed somehow
+        return EXIT_SUCCESS;
     }
-    else
-    {
-      // Exit the shell with success status
-      exit(EXIT_SUCCESS);
-    }
-    // This line is reached only if exit failed somehow
-    return EXIT_SUCCESS;
-  }
-  return EXIT_FAILURE;
+    return EXIT_FAILURE;
 }
 
 /**
@@ -93,37 +97,37 @@ int execute_exit(char **args)
  */
 int execute_path(char **args)
 {
-  if (!strcmp(args[0], "path"))
-  {
-    // First, clear the existing path by setting all entries to NULL
-    int path_count = 0;
-    while (PATH[path_count] != NULL)
+    if (!strcmp(args[0], "path"))
     {
-      free(PATH[path_count]); // Free the previously allocated memory
-      PATH[path_count] = NULL;
-      path_count++;
-    }
+        // First, clear the existing path by setting all entries to NULL
+        int path_count = 0;
+        while (PATH[path_count] != NULL)
+        {
+            free(PATH[path_count]); // Free the previously allocated memory
+            PATH[path_count] = NULL;
+            path_count++;
+        }
 
-    // If there are arguments, add each one to the PATH array
-    if (args[1] != NULL)
-    {
-      path_count = 0;
-      int args_count = 1;
-      while (args[args_count] != NULL && path_count < TOKENS_NUMBER - 1)
-      {
-        // Create a copy of the path string to avoid issues when args memory is
-        // freed
-        PATH[path_count] = strdup(args[args_count]);
-        path_count++;
-        args_count++;
-      }
-    }
+        // If there are arguments, add each one to the PATH array
+        if (args[1] != NULL)
+        {
+            path_count = 0;
+            int args_count = 1;
+            while (args[args_count] != NULL && path_count < TOKENS_NUMBER - 1)
+            {
+                // Create a copy of the path string to avoid issues when args memory is
+                // freed
+                PATH[path_count] = strdup(args[args_count]);
+                path_count++;
+                args_count++;
+            }
+        }
 
-    // Ensure the PATH array is NULL-terminated
-    PATH[path_count] = NULL;
-    return EXIT_SUCCESS;
-  }
-  return EXIT_FAILURE;
+        // Ensure the PATH array is NULL-terminated
+        PATH[path_count] = NULL;
+        return EXIT_SUCCESS;
+    }
+    return EXIT_FAILURE;
 }
 
 /**
@@ -134,20 +138,20 @@ int execute_path(char **args)
  */
 int execute_builtin_command(char **args)
 {
-  // Try to execute as exit command
-  if (!execute_exit(args))
-    return EXIT_SUCCESS;
+    // Try to execute as exit command
+    if (!execute_exit(args))
+        return EXIT_SUCCESS;
 
-  // Try to execute as cd command
-  if (!execute_cd(args))
-    return EXIT_SUCCESS;
+    // Try to execute as cd command
+    if (!execute_cd(args))
+        return EXIT_SUCCESS;
 
-  // Try to execute as path command
-  if (!execute_path(args))
-    return EXIT_SUCCESS;
+    // Try to execute as path command
+    if (!execute_path(args))
+        return EXIT_SUCCESS;
 
-  // Not a built-in command
-  return EXIT_FAILURE;
+    // Not a built-in command
+    return EXIT_FAILURE;
 }
 
 /**
@@ -159,18 +163,55 @@ int execute_builtin_command(char **args)
  */
 char *create_executable_path(char *path, char *command)
 {
-  // Allocate memory for the full path (path + / + command + null terminator)
-  char *full_path = malloc(strlen(path) + strlen(command) + 2);
-  if (full_path == NULL)
-  {
-    fprintf(stderr, ERROR_MSG);
-    exit(EXIT_FAILURE);
-  }
-  // Construct the full path
-  strcpy(full_path, path);
-  strcat(full_path, "/");
-  strcat(full_path, command);
-  return full_path;
+    // Allocate memory for the full path (path + / + command + null terminator)
+    char *full_path = malloc(strlen(path) + strlen(command) + 2);
+    if (full_path == NULL)
+    {
+        fprintf(ERROUTPUT, ERROR_MSG);
+        exit(EXIT_FAILURE);
+    }
+    // Construct the full path
+    strcpy(full_path, path);
+    strcat(full_path, "/");
+    strcat(full_path, command);
+    return full_path;
+}
+
+int handle_rediction(char **args)
+{
+    int rediction_postion = 0;
+    bool found = false;
+
+    while (args[rediction_postion] != NULL && !found)
+    {
+        if (!strcmp(args[rediction_postion], RED_DELIM))
+        {
+            if (rediction_postion == 0)
+            {
+                return EXIT_FAILURE;
+            }
+            args[rediction_postion] = NULL;
+            rediction_postion++;
+            if (args[rediction_postion] != NULL)
+            {
+                OUTPUT = fopen(args[rediction_postion], "w+");
+                args[rediction_postion] = NULL;
+                rediction_postion++;
+                if (args[rediction_postion] != NULL)
+                {
+                    args[rediction_postion] = NULL;
+                    return EXIT_FAILURE;
+                }
+            }
+            else
+            {
+                return EXIT_FAILURE;
+            }
+            found = true;
+        }
+        rediction_postion++;
+    }
+    return EXIT_SUCCESS;
 }
 
 /**
@@ -180,42 +221,45 @@ char *create_executable_path(char *path, char *command)
  */
 int execute_command(char **args)
 {
-  // Create a child process to execute the command
-  pid_t child_pid = fork();
+    // Create a child process to execute the command
+    pid_t child_pid = fork();
 
-  // Handle possible fork outcomes
-  if (child_pid == -1)
-  {
-    // Fork failed - system couldn't create a new process
-    fprintf(stderr, ERROR_MSG);
-    return EXIT_FAILURE;
-  }
-  else if (child_pid == 0)
-  {
-    // Child process code path
-    // Try each path in PATH array until command is found and executed
-    int path_count = 0;
-    char *executable_path;
-    while (PATH[path_count] != NULL)
+    // Handle possible fork outcomes
+    if (child_pid == -1)
     {
-      // Construct the full path for the executable
-      executable_path = create_executable_path(PATH[path_count], args[0]);
-      execv(executable_path, args);
-      // If execv returns, the command wasn't found in this path directory
-      free(executable_path);
-      path_count++;
+        // Fork failed - system couldn't create a new process
+        fprintf(ERROUTPUT, ERROR_MSG);
+        return EXIT_FAILURE;
     }
-    // If we reach here, command wasn't found in any path directory
-    fprintf(stderr, ERROR_MSG);
-    exit(EXIT_FAILURE); // Exit child process on failure
-  }
-  else
-  {
-    // Parent process code path
-    // Wait for child process to complete before returning control to shell
-    wait(NULL);
-    return EXIT_SUCCESS;
-  }
+    else if (child_pid == 0)
+    {
+        // Child process code path
+        // Try each path in PATH array until command is found and executed
+        int path_count = 0;
+        char *executable_path;
+        bool is_handled = !handle_rediction(args);
+        while (is_handled && PATH[path_count] != NULL)
+        {
+            // Construct the full path for the executable
+            executable_path = create_executable_path(PATH[path_count], args[0]);
+
+            // Handle rediction if success execute
+            execv(executable_path, args);
+            // If execv returns, the command wasn't found in this path directory
+            free(executable_path);
+            path_count++;
+        }
+        // If we reach here, command wasn't found in any path directory
+        fprintf(ERROUTPUT, ERROR_MSG);
+        exit(EXIT_FAILURE); // Exit child process on failure
+    }
+    else
+    {
+        // Parent process code path
+        // Wait for child process to complete before returning control to shell
+        wait(NULL);
+        return EXIT_SUCCESS;
+    }
 }
 
 /**
@@ -225,33 +269,71 @@ int execute_command(char **args)
  */
 char **parse_line(char *line)
 {
-  // Allocate space for tokens array (maximum TOKENS_NUMBER tokens)
-  char **tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
-  int token_count = 0; // Tracks the number of tokens found
+    // Allocate space for tokens array (maximum TOKENS_NUMBER tokens)
+    char **tmptokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
+    int tmptoken_count = 0; // Tracks the number of tokens found
 
-  // Check if memory allocation succeeded
-  if (!tokens)
-  {
-    fprintf(stderr, ERROR_MSG);
-    return NULL;
-  }
+    // Check if memory allocation succeeded
+    if (!tmptokens)
+    {
+        fprintf(ERROUTPUT, ERROR_MSG);
+        return NULL;
+    }
 
-  // Split the line into tokens using delimiters defined in DELIM (spaces, tabs,
-  // etc.)
-  char *token = strtok(line, DELIM);
+    // Split the line into tokens using delimiters defined in DELIM (spaces, tabs,
+    // etc.)
+    char *token = strtok(line, DELIM);
+    // Process all tokens in the input line
+    while (token != NULL && tmptoken_count < TOKENS_NUMBER - 1)
+    {
+        tmptokens[tmptoken_count++] = token;
+        // Get next token (NULL tells strtok to continue from last position)
+        token = strtok(NULL, DELIM);
+    }
 
-  // Process all tokens in the input line
-  while (token != NULL && token_count < TOKENS_NUMBER - 1)
-  {
-    tokens[token_count] = token;
-    token_count++;
-    // Get next token (NULL tells strtok to continue from last position)
-    token = strtok(NULL, DELIM);
-  }
+    // Null-terminate the array of tokens for easier processing
+    tmptokens[tmptoken_count] = NULL;
 
-  // Null-terminate the array of tokens for easier processing
-  tokens[token_count] = NULL;
-  return tokens;
+    char **tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
+    int token_count = 0; // Tracks the number of tokens found
+
+    char *subtoken;
+
+    for (int i = 0; i < tmptoken_count; i++)
+    {
+        if (!strcmp(tmptokens[i], RED_DELIM))
+        {
+            tokens[token_count++] = tmptokens[i];
+            tokens[token_count] = NULL;
+            continue;
+        }
+        char *cmptoken = malloc(strlen(tmptokens[i]) + 1);
+        strcpy(cmptoken, tmptokens[i]);
+
+        subtoken = strtok(tmptokens[i], RED_DELIM);
+
+        if (!strcmp(subtoken, cmptoken))
+        {
+            tokens[token_count++] = tmptokens[i];
+            tokens[token_count] = NULL;
+            free(cmptoken);
+            continue;
+        }
+
+        free(cmptoken);
+
+        do
+        {
+            tokens[token_count++] = subtoken;
+            // Add >
+            tokens[token_count++] = RED_DELIM;
+            // Get next token (NULL tells strtok to continue from last position)
+            subtoken = strtok(NULL, RED_DELIM);
+        } while (subtoken != NULL);
+        tokens[--token_count] = NULL;
+    }
+
+    return tokens;
 }
 
 /**
@@ -259,125 +341,124 @@ char **parse_line(char *line)
  * @param output Stream to write shell output to
  * @param input Stream to read shell input from
  */
-void wish_shell(FILE *output, FILE *input)
+void wish_shell()
 {
-  char *line = NULL;
-  size_t buffer_size = 0;
-  bool running = true; // Shell continues running until EOF or exit command
+    char *line = NULL;
+    size_t buffer_size = 0;
+    bool running = true; // Shell continues running until EOF or exit command
 
-  while (running)
-  {
-    line = NULL;
-    buffer_size = 0;
-
-    // Print shell prompt in interactive mode only (when input is from terminal)
-    if (input == stdin)
+    while (running)
     {
-      fprintf(output, "wish> ");
-      fflush(output); // Ensure prompt is displayed immediately
+        line = NULL;
+        buffer_size = 0;
+
+        // Print shell prompt in interactive mode only (when input is from terminal)
+        if (INPUT == stdin)
+        {
+            fprintf(OUTPUT, "wish> ");
+            fflush(OUTPUT); // Ensure prompt is displayed immediately
+        }
+
+        // Get input line from user using getline for dynamic allocation
+        if (getline(&line, &buffer_size, INPUT) == -1)
+        {
+            // Handle EOF (Ctrl+D) or read error by exiting the loop
+            free(line);
+            break;
+        }
+
+        // Parse input line into array of command arguments
+        char **args = parse_line(line);
+
+        // Skip empty commands or commands that failed to parse
+        if (args == NULL || args[0] == NULL)
+        {
+            free(args);
+            free(line);
+            continue;
+        }
+
+        // First try to handle as a built-in command (cd, exit, path)
+        bool is_builtin_command = !execute_builtin_command(args);
+
+        // If not a built-in command, execute as external command
+        if (!is_builtin_command)
+            execute_command(args);
+
+        // Free allocated memory to prevent leaks
+        free(args);
+        free(line);
     }
-
-    // Get input line from user using getline for dynamic allocation
-    if (getline(&line, &buffer_size, input) == -1)
-    {
-      // Handle EOF (Ctrl+D) or read error by exiting the loop
-      free(line);
-      break;
-    }
-
-    // Parse input line into array of command arguments
-    char **args = parse_line(line);
-
-    // Skip empty commands or commands that failed to parse
-    if (args == NULL || args[0] == NULL)
-    {
-      free(args);
-      free(line);
-      continue;
-    }
-
-    // First try to handle as a built-in command (cd, exit, path)
-    bool is_builtin_command = !execute_builtin_command(args);
-
-    // If not a built-in command, execute as external command
-    if (!is_builtin_command)
-      execute_command(args);
-
-    // Free allocated memory to prevent leaks
-    free(args);
-    free(line);
-  }
 }
 
 // handle input and output redirection
-void handle_redirection(int argc, char **argv, FILE *input, FILE *output)
+void handle_shell_redirection(int argc, char **argv)
 {
-  // Process command-line arguments for batch mode
-  if (argc == 2)
-  {
-    // One argument: batch file for input
-    input = fopen(argv[1], "r");
-    if (input == NULL)
+    // Initialize input/output streams
+    INPUT = stdin;
+    OUTPUT = stdout;
+    ERROUTPUT = stderr;
+    // Process command-line arguments for batch mode
+    if (argc == 2)
     {
-      // Failed to open input file
-      fprintf(stderr, ERROR_MSG);
-      exit(EXIT_FAILURE);
+        // One argument: batch file for input
+        INPUT = fopen(argv[1], "r");
+        if (INPUT == NULL)
+        {
+            // Failed to open input file
+            fprintf(ERROUTPUT, ERROR_MSG);
+            exit(EXIT_FAILURE);
+        }
     }
-  }
-  else if (argc == 3)
-  {
-    // Two arguments: input file and output file
-    input = fopen(argv[1], "r");
-    if (input == NULL)
+    else if (argc == 3)
     {
-      fprintf(stderr, ERROR_MSG);
-      exit(EXIT_FAILURE);
+        // Two arguments: input file and output file
+        INPUT = fopen(argv[1], "r");
+        if (INPUT == NULL)
+        {
+            fprintf(ERROUTPUT, ERROR_MSG);
+            exit(EXIT_FAILURE);
+        }
+        OUTPUT = fopen(argv[2], "w+");
+        if (OUTPUT == NULL)
+        {
+            fclose(INPUT);
+            fprintf(ERROUTPUT, ERROR_MSG);
+            exit(EXIT_FAILURE);
+        }
     }
-    output = fopen(argv[2], "w+");
-    if (output == NULL)
+    else if (argc > 3)
     {
-      fclose(input);
-      fprintf(stderr, ERROR_MSG);
-      exit(EXIT_FAILURE);
+        // Too many arguments
+        fprintf(ERROUTPUT, ERROR_MSG);
+        exit(EXIT_FAILURE);
     }
-  }
-  else if (argc > 3)
-  {
-    // Too many arguments
-    fprintf(stderr, ERROR_MSG);
-    exit(EXIT_FAILURE);
-  }
 }
 // Close the input/output streams if they were opened
-void close_streams(FILE *input, FILE *output)
+void close_streams()
 {
-  if (input != stdin)
-  {
-    fclose(input);
-  }
-  if (output != stdout)
-  {
-    fclose(output);
-  }
+    if (INPUT != stdin)
+        fclose(INPUT);
+
+    if (OUTPUT != stdout)
+        fclose(OUTPUT);
+    if (ERROUTPUT != stderr)
+        fclose(ERROUTPUT);
 }
 
 int main(int argc, char *argv[])
 {
-  // Initialize input/output streams
-  FILE *output = stdout;
-  FILE *input = stdin;
+    // Handle input and output redirection based on command-line arguments
+    handle_shell_redirection(argc, argv);
 
-  // Initialize default path directories
-  initialize_path();
+    // Initialize default path directories
+    initialize_path();
 
-  // Handle input and output redirection based on command-line arguments
-  handle_redirection(argc, argv, input, output);
+    // Start the shell with configured input/output
+    wish_shell();
 
-  // Start the shell with configured input/output
-  wish_shell(output, input);
+    // Close the input/output streams if they were opened
+    close_streams();
 
-  // Close the input/output streams if they were opened
-  close_streams(input, output);
-
-  return EXIT_SUCCESS;
+    return EXIT_SUCCESS;
 }
