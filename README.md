@@ -13,6 +13,7 @@ Wish (Wisconsin Shell) is a lightweight command-line interface that provides bas
   - `cd [directory]` - Change directory
   - `exit` - Exit the shell
   - `path [directory1] [directory2] ...` - Set search path for executables
+- I/O redirection with `>` operator
 - Support for both interactive and batch modes
 - Error handling with standardized error messages
 - File I/O redirection (for batch mode)
@@ -77,6 +78,35 @@ The shell maintains a list of directories to search for executable files:
 - Examples:
   - `path /usr/local/bin /bin /usr/bin` - Sets search path to these three directories
   - `path` - Clears all search paths (you won't be able to execute any commands afterwards)
+
+### Output Redirection
+
+The shell supports redirecting command output to files:
+- Use the `>` operator followed by a filename
+- Example: `ls > output.txt` - Redirects the output of `ls` to output.txt
+- Errors are properly handled:
+  - No filename provided: `ls >` will produce an error
+  - Multiple redirection operators: `ls > file1 > file2` will produce an error
+  - Redirection at the start: `> file` will produce an error
+
+## Code Structure
+
+The WISH shell is implemented in `wish.c` with the following key components:
+
+- **Main Shell Loop**: Processes input commands in `wish_shell()`
+- **Command Execution**: Handles both built-in and external commands
+- **Redirection Handling**: Parses and processes output redirection
+- **Path Management**: Manages the search path for executable files
+- **Error Handling**: Consistent error reporting throughout the shell
+
+## Documentation
+
+The codebase contains comprehensive comments that explain:
+- Purpose and functionality of each function
+- Data structures and algorithms used
+- Error handling strategies
+- Command execution flow
+- Complex parsing logic, especially for redirection
 
 ## Limitations
 

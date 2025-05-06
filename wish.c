@@ -1,3 +1,17 @@
+/**
+ * WISH - Wisconsin Shell
+ * 
+ * A simple Unix shell implementation with support for:
+ * - Basic command execution
+ * - Built-in commands: exit, cd, path
+ * - I/O redirection with '>' operator
+ * - Batch mode execution from input files
+ * 
+ * This shell searches for commands in the directories specified in the PATH array
+ * and executes them in child processes. It handles errors gracefully and provides
+ * appropriate error messages when commands fail.
+ */
+
 #include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -7,16 +21,19 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define TOKENS_NUMBER 64
-#define DELIM " \t\n\r"
-#define RED_DELIM ">"
-#define ERROR_MSG "An error has occurred\n"
+#define TOKENS_NUMBER 64       // Maximum number of tokens in a command
+#define DELIM " \t\n\r"        // Delimiters for tokenizing input
+#define REDIRECTION_DELIM ">"  // Redirection operator
+#define ERROR_MSG "An error has occurred\n"  // Standard error message
 
+// Array of PATH directories where commands will be searched
 char *PATH[TOKENS_NUMBER] = {NULL}; // Initialize all elements to NULL
 
-FILE *OUTPUT;
-FILE *INPUT;
-FILE *ERROUTPUT;
+// Global file handles for shell I/O operations
+FILE *OUTPUT;    // Standard output stream
+FILE *INPUT;     // Standard input stream
+FILE *ERROUTPUT; // Standard error stream
+
 /**
  * Initializes default path directories
  */
@@ -177,29 +194,34 @@ char *create_executable_path(char *path, char *command)
     return full_path;
 }
 
-int handle_rediction(char **args)
+/**
+ * Handles output redirection in command arguments
+ * @param args Array of command arguments
+ * @return EXIT_SUCCESS if redirection was handled properly, EXIT_FAILURE otherwise
+ */
+int handle_redirection(char **args)
 {
-    int rediction_postion = 0;
+    int redirection_position = 0;
     bool found = false;
 
-    while (args[rediction_postion] != NULL && !found)
+    while (args[redirection_position] != NULL && !found)
     {
-        if (!strcmp(args[rediction_postion], RED_DELIM))
+        if (!strcmp(args[redirection_position], REDIRECTION_DELIM))
         {
-            if (rediction_postion == 0)
+            if (redirection_position == 0)
             {
                 return EXIT_FAILURE;
             }
-            args[rediction_postion] = NULL;
-            rediction_postion++;
-            if (args[rediction_postion] != NULL)
+            args[redirection_position] = NULL;
+            redirection_position++;
+            if (args[redirection_position] != NULL)
             {
-                OUTPUT = fopen(args[rediction_postion], "w+");
-                args[rediction_postion] = NULL;
-                rediction_postion++;
-                if (args[rediction_postion] != NULL)
+                OUTPUT = fopen(args[redirection_position], "w+");
+                args[redirection_position] = NULL;
+                redirection_position++;
+                if (args[redirection_position] != NULL)
                 {
-                    args[rediction_postion] = NULL;
+                    args[redirection_position] = NULL;
                     return EXIT_FAILURE;
                 }
             }
@@ -209,7 +231,7 @@ int handle_rediction(char **args)
             }
             found = true;
         }
-        rediction_postion++;
+        redirection_position++;
     }
     return EXIT_SUCCESS;
 }
@@ -237,13 +259,13 @@ int execute_command(char **args)
         // Try each path in PATH array until command is found and executed
         int path_count = 0;
         char *executable_path;
-        bool is_handled = !handle_rediction(args);
+        bool is_handled = !handle_redirection(args);
         while (is_handled && PATH[path_count] != NULL)
         {
             // Construct the full path for the executable
             executable_path = create_executable_path(PATH[path_count], args[0]);
 
-            // Handle rediction if success execute
+            // Try to execute the command
             execv(executable_path, args);
             // If execv returns, the command wasn't found in this path directory
             free(executable_path);
@@ -260,6 +282,61 @@ int execute_command(char **args)
         wait(NULL);
         return EXIT_SUCCESS;
     }
+}
+
+/**
+ * Parses tokens for redirection symbols and handles complex redirection cases
+ * @param tmptokens Array of initial tokens
+ * @param tmptoken_count Number of tokens in the array
+ * @return Processed array of tokens with proper redirection handling
+ *
+ * This function analyzes each token to detect redirection operators:
+ * - If a token is exactly ">" (REDIRECTION_DELIM), it's preserved as is
+ * - If a token contains ">" embedded within (like "echo>file"), it splits the token
+ *   into separate tokens: "echo", ">", "file"
+ * The function returns a new array with all tokens properly separated
+ */
+char **parse_redirection(char **tmptokens, int tmptoken_count)
+{
+    char **tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
+    int token_count = 0; // tracks the number of tokens found
+
+    char *subtoken;
+
+    for (int i = 0; i < tmptoken_count; i++)
+    {
+        if (!strcmp(tmptokens[i], REDIRECTION_DELIM))
+        {
+            tokens[token_count++] = tmptokens[i];
+            tokens[token_count] = NULL;
+            continue;
+        }
+        char *cmptoken = malloc(strlen(tmptokens[i]) + 1);
+        strcpy(cmptoken, tmptokens[i]);
+
+        subtoken = strtok(tmptokens[i], REDIRECTION_DELIM);
+
+        if (!strcmp(subtoken, cmptoken))
+        {
+            tokens[token_count++] = tmptokens[i];
+            tokens[token_count] = NULL;
+            free(cmptoken);
+            continue;
+        }
+
+        free(cmptoken);
+
+        do
+        {
+            tokens[token_count++] = subtoken;
+            // Add >
+            tokens[token_count++] = REDIRECTION_DELIM;
+            // Get next token (NULL tells strtok to continue from last position)
+            subtoken = strtok(NULL, REDIRECTION_DELIM);
+        } while (subtoken != NULL);
+        tokens[--token_count] = NULL;
+    }
+    return tokens;
 }
 
 /**
@@ -293,46 +370,9 @@ char **parse_line(char *line)
 
     // Null-terminate the array of tokens for easier processing
     tmptokens[tmptoken_count] = NULL;
-
-    char **tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
-    int token_count = 0; // Tracks the number of tokens found
-
-    char *subtoken;
-
-    for (int i = 0; i < tmptoken_count; i++)
-    {
-        if (!strcmp(tmptokens[i], RED_DELIM))
-        {
-            tokens[token_count++] = tmptokens[i];
-            tokens[token_count] = NULL;
-            continue;
-        }
-        char *cmptoken = malloc(strlen(tmptokens[i]) + 1);
-        strcpy(cmptoken, tmptokens[i]);
-
-        subtoken = strtok(tmptokens[i], RED_DELIM);
-
-        if (!strcmp(subtoken, cmptoken))
-        {
-            tokens[token_count++] = tmptokens[i];
-            tokens[token_count] = NULL;
-            free(cmptoken);
-            continue;
-        }
-
-        free(cmptoken);
-
-        do
-        {
-            tokens[token_count++] = subtoken;
-            // Add >
-            tokens[token_count++] = RED_DELIM;
-            // Get next token (NULL tells strtok to continue from last position)
-            subtoken = strtok(NULL, RED_DELIM);
-        } while (subtoken != NULL);
-        tokens[--token_count] = NULL;
-    }
-
+    // Parse and handle the redirection
+    char **tokens = parse_redirection(tmptokens, tmptoken_count);
+    free(tmptokens);
     return tokens;
 }
 
@@ -391,7 +431,16 @@ void wish_shell()
     }
 }
 
-// handle input and output redirection
+/**
+ * Configures shell input and output redirection based on command-line arguments
+ * @param argc Number of command-line arguments
+ * @param argv Array of command-line arguments
+ *
+ * This function sets up the shell's I/O streams based on command-line arguments:
+ * - No arguments: Use standard input/output (interactive mode)
+ * - One argument: Use specified file as input (batch mode)
+ * - Two arguments: Use first file as input, second file as output
+ */
 void handle_shell_redirection(int argc, char **argv)
 {
     // Initialize input/output streams
@@ -434,7 +483,11 @@ void handle_shell_redirection(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 }
-// Close the input/output streams if they were opened
+
+/**
+ * Closes any opened file streams before program termination
+ * This function ensures proper cleanup of file resources
+ */
 void close_streams()
 {
     if (INPUT != stdin)
