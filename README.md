@@ -24,14 +24,37 @@ Wish (Wisconsin Shell) is a lightweight command-line interface that provides bas
 ### Prerequisites
 
 - GCC or another C compiler
-- Make (optional, for build automation)
+- Make (for build automation)
 
 ### Building
 
-To build the shell:
+To build the shell using the provided Makefile:
 
 ```bash
-gcc -o wish wish.c
+make
+```
+
+Or you can still build manually:
+
+```bash
+gcc -o wish wish.c 
+```
+
+### Makefile Usage
+
+The project includes a Makefile with several useful targets:
+
+- `make` or `make all` - Builds the wish shell executable
+- `make clean` - Removes compiled files (the executable and object files)
+- `make debug` - Builds with debug symbols for debugging with tools like gdb
+
+Example:
+```bash
+# Compile with debug symbols
+make debug
+
+# Clean up compiled files
+make clean
 ```
 
 ### Running
