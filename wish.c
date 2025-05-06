@@ -1,17 +1,19 @@
 /**
  * WISH - Wisconsin Shell
- * 
+ *
  * A simple Unix shell implementation with support for:
  * - Basic command execution
  * - Built-in commands: exit, cd, path
  * - I/O redirection with '>' operator
+ * - Parallel command execution with '&' operator
  * - Batch mode execution from input files
- * 
+ *
  * This shell searches for commands in the directories specified in the PATH array
  * and executes them in child processes. It handles errors gracefully and provides
  * appropriate error messages when commands fail.
  */
 
+#include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,18 +23,22 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define TOKENS_NUMBER 64       // Maximum number of tokens in a command
-#define DELIM " \t\n\r"        // Delimiters for tokenizing input
-#define REDIRECTION_DELIM ">"  // Redirection operator
-#define ERROR_MSG "An error has occurred\n"  // Standard error message
+#define TOKENS_NUMBER 64                    // Maximum number of tokens in a command
+#define MAX_PARALLEL_PROCESSES 16          // Maximum number of parallel processes
+#define DELIM " \t\n\r"                     // Delimiters for tokenizing input
+#define REDIRECTION_DELIM ">"               // Redirection operator
+#define PARALLEL_DELIM "&"                  // Parallel command separator
+#define ERROR_MSG "An error has occurred\n" // Standard error message
 
 // Array of PATH directories where commands will be searched
 char *PATH[TOKENS_NUMBER] = {NULL}; // Initialize all elements to NULL
 
 // Global file handles for shell I/O operations
-FILE *OUTPUT;    // Standard output stream
-FILE *INPUT;     // Standard input stream
-FILE *ERROUTPUT; // Standard error stream
+FILE *OUTPUT;    // Output stream
+FILE *INPUT;     // Input stream
+FILE *ERROUTPUT; // Error stream
+
+bool SHELL_RUNNING = true;  // Controls the main shell loop execution
 
 /**
  * Initializes default path directories
@@ -100,8 +106,6 @@ int execute_exit(char **args)
             // Exit the shell with success status
             exit(EXIT_SUCCESS);
         }
-        // This line is reached only if exit failed somehow
-        return EXIT_SUCCESS;
     }
     return EXIT_FAILURE;
 }
@@ -201,49 +205,98 @@ char *create_executable_path(char *path, char *command)
  */
 int handle_redirection(char **args)
 {
-    int redirection_position = 0;
-    bool found = false;
+    int current_position = 0;
+    bool redirection_found = false;
+    char *output_file_path = NULL;
 
-    while (args[redirection_position] != NULL && !found)
+    // Search through arguments for redirection operator
+    while (args[current_position] != NULL && !redirection_found)
     {
-        if (!strcmp(args[redirection_position], REDIRECTION_DELIM))
+        // Check if current argument is a redirection symbol
+        if (!strcmp(args[current_position], REDIRECTION_DELIM))
         {
-            if (redirection_position == 0)
+            // Error case: redirection at start of command (e.g., "> file")
+            if (current_position == 0)
             {
                 return EXIT_FAILURE;
             }
-            args[redirection_position] = NULL;
-            redirection_position++;
-            if (args[redirection_position] != NULL)
+            
+            // Remove the redirection symbol from arguments
+            args[current_position] = NULL;
+            current_position++;
+            
+            // Get the output file name
+            if (args[current_position] != NULL)
             {
-                OUTPUT = fopen(args[redirection_position], "w+");
-                args[redirection_position] = NULL;
-                redirection_position++;
-                if (args[redirection_position] != NULL)
+                // Store output filename for later use
+                output_file_path = args[current_position];
+                
+                // Remove the filename from arguments
+                args[current_position] = NULL;
+                current_position++;
+                
+                // Error case: multiple redirections (e.g., "ls > file1 > file2")
+                if (args[current_position] != NULL)
                 {
-                    args[redirection_position] = NULL;
+                    args[current_position] = NULL;
                     return EXIT_FAILURE;
                 }
             }
             else
             {
+                // Error case: missing filename (e.g., "ls >")
                 return EXIT_FAILURE;
             }
-            found = true;
+            redirection_found = true;
         }
-        redirection_position++;
+        current_position++;
     }
+
+    // Perform the actual redirection if an output file was specified
+    if (output_file_path != NULL)
+    {
+        // Open the output file (create if doesn't exist, truncate if exists)
+        int file_descriptor = open(output_file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (file_descriptor == -1)
+        {
+            // Failed to open the output file
+            fprintf(ERROUTPUT, ERROR_MSG);
+            return EXIT_FAILURE;
+        }
+        
+        // Redirect standard output to the file
+        if (dup2(file_descriptor, STDOUT_FILENO) == -1)
+        {
+            // Failed to redirect stdout
+            close(file_descriptor);
+            fprintf(ERROUTPUT, ERROR_MSG);
+            return EXIT_FAILURE;
+        }
+        
+        // Close the file descriptor as it's now duplicated to stdout
+        close(file_descriptor);
+    }
+
     return EXIT_SUCCESS;
 }
 
 /**
  * Executes a command using fork and execv
  * @param args Array of arguments for the command
+ * @param process_id Pointer to store the process ID (for parallel execution)
  * @return EXIT_SUCCESS on success, EXIT_FAILURE on failure
  */
-int execute_command(char **args)
+int execute_command(char **args, pid_t *process_id)
 {
-    // Create a child process to execute the command
+    // First try to handle as a built-in command (cd, exit, path)
+    if (!execute_builtin_command(args))
+    {
+        // If it's a built-in command, execute it and return success
+        // No need to track process ID for built-in commands
+        return EXIT_SUCCESS;
+    }
+
+    // Create a child process to execute the external command
     pid_t child_pid = fork();
 
     // Handle possible fork outcomes
@@ -256,21 +309,27 @@ int execute_command(char **args)
     else if (child_pid == 0)
     {
         // Child process code path
-        // Try each path in PATH array until command is found and executed
         int path_count = 0;
         char *executable_path;
-        bool is_handled = !handle_redirection(args);
-        while (is_handled && PATH[path_count] != NULL)
+        
+        // Handle any redirection in the child process 
+        // (important to do this in the child so it doesn't affect the parent)
+        bool redirection_success = !handle_redirection(args);
+
+        // If redirection succeeded, search for the command in PATH directories
+        while (redirection_success && PATH[path_count] != NULL)
         {
             // Construct the full path for the executable
             executable_path = create_executable_path(PATH[path_count], args[0]);
 
             // Try to execute the command
             execv(executable_path, args);
+            
             // If execv returns, the command wasn't found in this path directory
             free(executable_path);
             path_count++;
         }
+
         // If we reach here, command wasn't found in any path directory
         fprintf(ERROUTPUT, ERROR_MSG);
         exit(EXIT_FAILURE); // Exit child process on failure
@@ -278,65 +337,74 @@ int execute_command(char **args)
     else
     {
         // Parent process code path
-        // Wait for child process to complete before returning control to shell
-        wait(NULL);
+        // Save child process PID for later waitpid call in parallel execution
+        *process_id = child_pid;
         return EXIT_SUCCESS;
     }
 }
 
 /**
- * Parses tokens for redirection symbols and handles complex redirection cases
- * @param tmptokens Array of initial tokens
- * @param tmptoken_count Number of tokens in the array
- * @return Processed array of tokens with proper redirection handling
+ * Parses tokens for special delimiters and handles complex token embedding
+ * @param tokens Array of initial tokens
+ * @param token_count Pointer to the number of tokens in the array (will be updated)
+ * @param delimiter The delimiter to look for ('>' for redirection or '&' for parallel)
+ * @return Processed array of tokens with proper delimiter handling
  *
- * This function analyzes each token to detect redirection operators:
- * - If a token is exactly ">" (REDIRECTION_DELIM), it's preserved as is
- * - If a token contains ">" embedded within (like "echo>file"), it splits the token
- *   into separate tokens: "echo", ">", "file"
- * The function returns a new array with all tokens properly separated
+ * This function analyzes each token to detect special operators:
+ * - If a token matches the delimiter exactly, it's preserved as is
+ * - If a token contains the delimiter embedded (like "echo>file" or "cmd&cmd2"),
+ *   it splits the token into separate parts with the delimiter in between
  */
-char **parse_redirection(char **tmptokens, int tmptoken_count)
+char **parse_subtokens(char **tokens, int *token_count, char *delimiter)
 {
-    char **tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
-    int token_count = 0; // tracks the number of tokens found
+    char **parsed_tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
+    int parsed_count = 0; // tracks the number of tokens found
 
     char *subtoken;
 
-    for (int i = 0; i < tmptoken_count; i++)
+    for (int i = 0; i < *token_count; i++)
     {
-        if (!strcmp(tmptokens[i], REDIRECTION_DELIM))
+        // Check if the token is exactly the delimiter
+        if (!strcmp(tokens[i], delimiter))
         {
-            tokens[token_count++] = tmptokens[i];
-            tokens[token_count] = NULL;
+            parsed_tokens[parsed_count++] = tokens[i];
+            parsed_tokens[parsed_count] = NULL;
             continue;
         }
-        char *cmptoken = malloc(strlen(tmptokens[i]) + 1);
-        strcpy(cmptoken, tmptokens[i]);
+        
+        // Make a copy to compare with after tokenization
+        char *token_copy = malloc(strlen(tokens[i]) + 1);
+        strcpy(token_copy, tokens[i]);
 
-        subtoken = strtok(tmptokens[i], REDIRECTION_DELIM);
+        // Try to split by the delimiter
+        subtoken = strtok(tokens[i], delimiter);
 
-        if (!strcmp(subtoken, cmptoken))
+        // If token wasn't split, keep it as is
+        if (!strcmp(subtoken, token_copy))
         {
-            tokens[token_count++] = tmptokens[i];
-            tokens[token_count] = NULL;
-            free(cmptoken);
+            parsed_tokens[parsed_count++] = tokens[i];
+            parsed_tokens[parsed_count] = NULL;
+            free(token_copy);
             continue;
         }
 
-        free(cmptoken);
+        free(token_copy);
 
+        // Handle the split token parts
         do
         {
-            tokens[token_count++] = subtoken;
-            // Add >
-            tokens[token_count++] = REDIRECTION_DELIM;
-            // Get next token (NULL tells strtok to continue from last position)
-            subtoken = strtok(NULL, REDIRECTION_DELIM);
+            parsed_tokens[parsed_count++] = subtoken;
+            parsed_tokens[parsed_count++] = delimiter; // Insert delimiter as a separate token
+            subtoken = strtok(NULL, delimiter); // Get next part
         } while (subtoken != NULL);
-        tokens[--token_count] = NULL;
+        
+        // Remove the last NULL that was assigned
+        parsed_tokens[--parsed_count] = NULL;
     }
-    return tokens;
+    
+    // Update the token count to reflect the new total
+    *token_count = parsed_count;
+    return parsed_tokens;
 }
 
 /**
@@ -347,33 +415,39 @@ char **parse_redirection(char **tmptokens, int tmptoken_count)
 char **parse_line(char *line)
 {
     // Allocate space for tokens array (maximum TOKENS_NUMBER tokens)
-    char **tmptokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
-    int tmptoken_count = 0; // Tracks the number of tokens found
+    char **initial_tokens = malloc(TOKENS_NUMBER * (sizeof(char *)));
+    int token_count = 0; // Tracks the number of tokens found
 
     // Check if memory allocation succeeded
-    if (!tmptokens)
+    if (!initial_tokens)
     {
         fprintf(ERROUTPUT, ERROR_MSG);
         return NULL;
     }
 
-    // Split the line into tokens using delimiters defined in DELIM (spaces, tabs,
-    // etc.)
+    // Split the line into tokens using basic whitespace delimiters
     char *token = strtok(line, DELIM);
-    // Process all tokens in the input line
-    while (token != NULL && tmptoken_count < TOKENS_NUMBER - 1)
+    while (token != NULL && token_count < TOKENS_NUMBER - 1)
     {
-        tmptokens[tmptoken_count++] = token;
-        // Get next token (NULL tells strtok to continue from last position)
+        initial_tokens[token_count++] = token;
         token = strtok(NULL, DELIM);
     }
 
     // Null-terminate the array of tokens for easier processing
-    tmptokens[tmptoken_count] = NULL;
-    // Parse and handle the redirection
-    char **tokens = parse_redirection(tmptokens, tmptoken_count);
-    free(tmptokens);
-    return tokens;
+    initial_tokens[token_count] = NULL;
+
+    // Process the special operators in two steps:
+    
+    // Step 1: Parse and handle redirection operator ('>')
+    char **redirection_parsed = parse_subtokens(initial_tokens, &token_count, REDIRECTION_DELIM);
+    
+    // Step 2: Parse and handle parallel execution operator ('&')
+    char **final_tokens = parse_subtokens(redirection_parsed, &token_count, PARALLEL_DELIM);
+    
+    // Free the intermediate array
+    free(initial_tokens);
+    
+    return final_tokens;
 }
 
 /**
@@ -385,9 +459,8 @@ void wish_shell()
 {
     char *line = NULL;
     size_t buffer_size = 0;
-    bool running = true; // Shell continues running until EOF or exit command
 
-    while (running)
+    while (SHELL_RUNNING)
     {
         line = NULL;
         buffer_size = 0;
@@ -418,13 +491,71 @@ void wish_shell()
             continue;
         }
 
-        // First try to handle as a built-in command (cd, exit, path)
-        bool is_builtin_command = !execute_builtin_command(args);
+        // Arrays and counters for parallel command execution
+        pid_t parallel_processes[MAX_PARALLEL_PROCESSES]; // Array to store process IDs
+        int process_count = 0;                            // Counter for parallel processes
+        int arg_position = 0;                             // Current position in args array
+        int command_arg_count = 0;                        // Counter for current command's arguments
+        
+        // Temporary array to hold the current command to be executed
+        char **current_command = malloc(sizeof(char *) * TOKENS_NUMBER);
 
-        // If not a built-in command, execute as external command
-        if (!is_builtin_command)
-            execute_command(args);
+        // Process all arguments, creating commands separated by PARALLEL_DELIM ('&')
+        while (args[arg_position] != NULL)
+        {
+            // Copy current argument to the command array
+            current_command[command_arg_count] = malloc(strlen(args[arg_position]) + 1);
+            strcpy(current_command[command_arg_count], args[arg_position]);
+            current_command[command_arg_count + 1] = NULL;
+            
+            // Check if the current argument is a parallel delimiter ('&')
+            if (!strcmp(args[arg_position], PARALLEL_DELIM))
+            {
+                // Handle empty command before delimiter
+                if (!command_arg_count)
+                {
+                    break;
+                }
+                
+                // Null-terminate the current command
+                current_command[command_arg_count] = NULL;
+                
+                // Execute the command and store its process ID
+                execute_command(current_command, &parallel_processes[process_count++]);
+                
+                // Free the memory for the delimiter token
+                free(current_command[command_arg_count]);
+                
+                // Reset command argument counter to prepare for next command
+                command_arg_count = -1;
+            }
+            
+            // Move to the next argument
+            arg_position++;
+            command_arg_count++;
+        }
+        
+        // Execute the last command if there are any pending arguments
+        if (command_arg_count)
+        {
+            execute_command(current_command, &parallel_processes[process_count++]);
+        }
 
+        // Free the allocated memory for current_command
+        for (int i = 0; i < command_arg_count; i++)
+        {
+            free(current_command[i]);
+        }
+        free(current_command);
+
+        // Wait for all processes to complete
+        int status;
+        for (int i = 0; i < process_count; ++i)
+        {
+            // Wait for each child process to complete
+            waitpid(parallel_processes[i], &status, 0);
+        }
+        
         // Free allocated memory to prevent leaks
         free(args);
         free(line);

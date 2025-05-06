@@ -14,6 +14,7 @@ Wish (Wisconsin Shell) is a lightweight command-line interface that provides bas
   - `exit` - Exit the shell
   - `path [directory1] [directory2] ...` - Set search path for executables
 - I/O redirection with `>` operator
+- Parallel command execution with `&` operator
 - Support for both interactive and batch modes
 - Error handling with standardized error messages
 - File I/O redirection (for batch mode)
@@ -89,6 +90,16 @@ The shell supports redirecting command output to files:
   - Multiple redirection operators: `ls > file1 > file2` will produce an error
   - Redirection at the start: `> file` will produce an error
 
+### Parallel Command Execution
+
+The shell supports running multiple commands in parallel:
+- Use the `&` operator to separate commands
+- Example: `ls & pwd & echo hello` - Runs all three commands in parallel
+- The shell waits for all parallel commands to complete before accepting new input
+- Parallel commands can be combined with redirection
+  - Example: `ls > file1 & pwd > file2` - Redirects output of parallel commands to different files
+- You can run up to 16 commands in parallel
+
 ## Code Structure
 
 The WISH shell is implemented in `wish.c` with the following key components:
@@ -107,16 +118,6 @@ The codebase contains comprehensive comments that explain:
 - Error handling strategies
 - Command execution flow
 - Complex parsing logic, especially for redirection
-
-## Limitations
-
-- Limited error information
-- No command history
-- No background processing
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
